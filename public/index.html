@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FutSim 2026 - Pro Manager</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Montserrat:wght@400;600;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/lucide@latest"></script>
+    <style>
+        :root { --primary: #00ff88; --bg-dark: #0a0a0c; --panel: rgba(20, 22, 28, 0.75); }
+        body { font-family: 'Montserrat', sans-serif; background: var(--bg-dark); color: #e2e8f0; background-image: radial-gradient(circle at 50% 0%, #152a20 0%, var(--bg-dark) 60%); }
+        .score-font { font-family: 'Bebas Neue', sans-serif; letter-spacing: 2px; }
+        
+        .glass-panel {
+            background: var(--panel); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.05); box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+            border-radius: 1.5rem;
+        }
+        
+        .stadium-bg {
+            background: radial-gradient(circle at center, #0f4127 0%, #05160d 100%); position: relative; overflow: hidden;
+            border: 1px solid rgba(0, 255, 136, 0.2); box-shadow: inset 0 0 50px rgba(0,0,0,0.8);
+        }
+        .stadium-bg::before {
+            content: ''; position: absolute; inset: 0; pointer-events: none;
+            background: repeating-linear-gradient(0deg, transparent, transparent 40px, rgba(255,255,255,0.02) 40px, rgba(255,255,255,0.02) 80px);
+        }
+        .pitch-lines { position: absolute; border: 2px solid rgba(255,255,255,0.15); border-radius: 50%; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 140px; height: 140px; }
+        .pitch-center { position: absolute; background: rgba(255,255,255,0.15); width: 100%; height: 2px; top: 50%; }
+
+        .btn-neon {
+            background: transparent; color: var(--primary); border: 2px solid var(--primary);
+            text-transform: uppercase; font-weight: 800; transition: all 0.3s ease;
+            box-shadow: 0 0 10px rgba(0,255,136,0.2);
+        }
+        .btn-neon:hover { background: var(--primary); color: #000; box-shadow: 0 0 25px rgba(0,255,136,0.6); transform: translateY(-2px); }
+
+        .chat-me { background: linear-gradient(135deg, #059669, #047857); border-radius: 12px 12px 0 12px; align-self: flex-end; }
+        .chat-other { background: rgba(255,255,255,0.1); border-radius: 12px 12px 12px 0; align-self: flex-start; }
+        .chat-sys { background: rgba(234, 179, 8, 0.2); border-left: 3px solid #eab308; color: #fde047; text-align: center; border-radius: 4px; padding: 4px; font-size: 0.8rem;}
+
+        .goal-flash { animation: goalGlow 1s ease-out; }
+        @keyframes goalGlow { 0% { box-shadow: inset 0 0 0px #00ff88; } 50% { box-shadow: inset 0 0 100px #00ff88; } 100% { box-shadow: inset 0 0 0px #00ff88; } }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
+        ::-webkit-scrollbar-thumb { background: var(--primary); border-radius: 10px; }
+
+        .player-card { transition: transform 0.2s; }
+        .player-card:hover { transform: scale(1.02); background: rgba(255,255,255,0.1); }
+    </style>
+</head>
+<body class="h-screen w-screen overflow-hidden flex flex-col selection:bg-emerald-500 selection:text-white">
+
+    <!-- Tela de Login -->
+    <div id="login-screen" class="absolute inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md">
+        <div class="glass-panel p-10 text-center w-full max-w-md transform transition-all">
+            <i data-lucide="trophy" class="w-16 h-16 mx-auto text-[#00ff88] mb-4"></i>
+            <h1 class="text-6xl score-font text-white mb-1 drop-shadow-[0_0_15px_rgba(0,255,136,0.5)]">FUTSIM <span class="text-[#00ff88]">2026</span></h1>
+            <p class="text-gray-400 mb-8 font-semibold tracking-widest text-sm uppercase">Ultimate Manager Arena</p>
+            
+            <div class="relative mb-6">
+                <i data-lucide="user" class="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400"></i>
+                <input type="text" id="username-input" placeholder="Seu nome de Treinador" class="w-full pl-12 pr-4 py-4 rounded-xl bg-black/50 text-white border border-gray-700 focus:outline-none focus:border-[#00ff88] transition-colors text-lg font-semibold">
+            </div>
+            
+            <button onclick="login()" class="btn-neon w-full py-4 rounded-xl text-lg flex items-center justify-center gap-2">
+                <span>Entrar no Gramado</span>
+                <i data-lucide="arrow-right"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Container Principal -->
+    <div id="main-interface" class="hidden h-full flex flex-col lg:flex-row gap-6 p-6">
+        
+        <!-- Coluna Esquerda: Perfil & Ranking -->
+        <div class="w-full lg:w-1/4 flex flex-col gap-6 h-full">
+            
+            <!-- Meu Perfil -->
+            <div class="glass-panel p-6 flex items-center gap-4 relative overflow-hidden group">
+                <div class="absolute top-0 right-0 w-24 h-24 bg-[#00ff88] opacity-10 rounded-full blur-2xl group-hover:opacity-20 transition-opacity"></div>
+                <div class="w-16 h-16 rounded-full bg-gradient-to-br from-[#00ff88] to-emerald-800 flex items-center justify-center border-2 border-white/20 shadow-lg">
+                    <i data-lucide="user-check" class="text-black w-8 h-8"></i>
+                </div>
+                <div>
+                    <h2 id="my-username" class="text-2xl font-bold text-white tracking-tight">Treinador</h2>
+                    <div class="flex gap-3 text-xs font-bold text-gray-400 uppercase tracking-wider mt-1">
+                        <span class="bg-black/30 px-2 py-1 rounded text-[#00ff88]" id="my-pts">0 PTS</span>
+                        <span class="bg-black/30 px-2 py-1 rounded text-blue-400" id="my-wins">0 V</span>
+                        <span class="bg-black/30 px-2 py-1 rounded text-red-400" id="my-losses">0 D</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Ranking -->
+            <div class="glass-panel p-6 flex-1 flex flex-col overflow-hidden">
+                <div class="flex items-center gap-2 mb-4 text-[#00ff88]">
+                    <i data-lucide="bar-chart-2"></i>
+                    <h3 class="text-lg font-bold uppercase tracking-widest">Top 10 Global</h3>
+                </div>
+                <div id="ranking-list" class="flex-1 overflow-y-auto space-y-3 pr-2">
+                    <!-- Cards de ranking -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Coluna Central: Campo e Duelos -->
+        <div class="w-full lg:w-2/4 flex flex-col gap-6 h-full">
+            
+            <!-- O Campo / Simulação -->
+            <div id="stadium-container" class="stadium-bg rounded-[2rem] flex-1 flex flex-col items-center justify-center relative shadow-2xl transition-all duration-300">
+                <div class="pitch-center"></div>
+                <div class="pitch-lines"></div>
+
+                <!-- Painel Ocioso -->
+                <div id="waiting-panel" class="z-10 text-center glass-panel p-8 border-none bg-black/40">
+                    <i data-lucide="radio" class="w-12 h-12 text-[#00ff88] mx-auto mb-4 animate-pulse"></i>
+                    <h2 class="text-3xl score-font text-white mb-2 tracking-widest">AGUARDANDO PARTIDA</h2>
+                    <p class="text-gray-400 text-sm">Desafie um jogador na lista abaixo para começar.</p>
+                </div>
+
+                <!-- Painel de Partida Ativa -->
+                <div id="match-panel" class="z-10 w-11/12 max-w-2xl hidden flex flex-col gap-4">
+                    
+                    <!-- Placar Topo -->
+                    <div class="glass-panel p-6 flex items-center justify-between bg-black/60 border-[#00ff88]/30">
+                        <div class="text-center w-1/3">
+                            <div class="text-2xl font-bold text-white truncate" id="team1-name">TIME 1</div>
+                            <div class="text-sm text-blue-400 font-bold mt-1">CASA</div>
+                        </div>
+                        
+                        <div class="w-1/3 flex flex-col items-center">
+                            <div class="text-sm font-bold text-[#00ff88] bg-[#00ff88]/10 px-3 py-1 rounded-full mb-2 animate-pulse flex items-center gap-1">
+                                <span class="w-2 h-2 rounded-full bg-[#00ff88]"></span> AO VIVO
+                            </div>
+                            <div class="text-6xl score-font text-white flex items-center gap-4">
+                                <span id="score1">0</span>
+                                <span class="text-gray-600 text-4xl">-</span>
+                                <span id="score2">0</span>
+                            </div>
+                            <div class="text-gray-400 font-bold mt-1 tracking-widest"><span id="match-time">00'</span></div>
+                        </div>
+
+                        <div class="text-center w-1/3">
+                            <div class="text-2xl font-bold text-white truncate" id="team2-name">TIME 2</div>
+                            <div class="text-sm text-red-400 font-bold mt-1">VISITANTE</div>
+                        </div>
+                    </div>
+
+                    <!-- Barra de Tempo -->
+                    <div class="w-full bg-black/50 rounded-full h-2 overflow-hidden backdrop-blur-sm">
+                        <div id="match-progress" class="bg-gradient-to-r from-emerald-600 to-[#00ff88] h-full transition-all duration-500 ease-linear" style="width: 0%"></div>
+                    </div>
+
+                    <!-- Layout Inferior da Partida -->
+                    <div class="flex gap-4 h-40">
+                        <!-- Estatísticas -->
+                        <div class="glass-panel w-1/3 p-4 flex flex-col justify-center gap-4 bg-black/60">
+                            <div>
+                                <div class="flex justify-between text-xs font-bold text-gray-400 mb-1">
+                                    <span>POSSE</span>
+                                </div>
+                                <div class="flex h-2 rounded overflow-hidden">
+                                    <div id="stat-pos1-bar" class="bg-blue-500 h-full" style="width:50%"></div>
+                                    <div id="stat-pos2-bar" class="bg-red-500 h-full" style="width:50%"></div>
+                                </div>
+                                <div class="flex justify-between text-xs font-bold mt-1 text-white">
+                                    <span id="stat-pos1">50%</span><span id="stat-pos2">50%</span>
+                                </div>
+                            </div>
+                            <div>
+                                <div class="flex justify-between text-xs font-bold text-gray-400 mb-1">
+                                    <span>CHUTES</span>
+                                </div>
+                                <div class="flex justify-between text-lg score-font text-white">
+                                    <span id="stat-shots1" class="text-blue-400">0</span>
+                                    <span id="stat-shots2" class="text-red-400">0</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Eventos Lance a Lance -->
+                        <div class="glass-panel w-2/3 p-4 bg-black/60 overflow-y-auto flex flex-col gap-2" id="match-events">
+                            <!-- Inserido via JS -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Jogadores Online -->
+            <div class="glass-panel p-6 h-56 flex flex-col">
+                <div class="flex items-center gap-2 mb-4 text-[#00ff88]">
+                    <i data-lucide="globe"></i>
+                    <h3 class="text-lg font-bold uppercase tracking-widest">Treinadores Online</h3>
+                </div>
+                <div id="online-list" class="flex-1 overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-3 pr-2">
+                    <!-- Cards inseridos via JS -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Coluna Direita: Comunicação -->
+        <div class="w-full lg:w-1/4 flex flex-col gap-6 h-full">
+            
+            <!-- Chat Global -->
+            <div class="glass-panel p-5 flex-1 flex flex-col h-1/2">
+                <div class="flex items-center gap-2 mb-4 border-b border-white/10 pb-3">
+                    <i data-lucide="message-square" class="text-[#00ff88]"></i>
+                    <h3 class="text-sm font-bold uppercase tracking-widest">Chat Global</h3>
+                </div>
+                <div id="global-chat" class="flex-1 overflow-y-auto flex flex-col gap-2 pr-2 mb-4">
+                </div>
+                <div class="relative">
+                    <input type="text" id="global-msg-input" placeholder="Digite no global..." class="w-full pl-4 pr-12 py-3 rounded-lg bg-black/50 text-sm text-white border border-gray-700 focus:border-[#00ff88] outline-none">
+                    <button onclick="sendGlobalMsg()" class="absolute right-2 top-1/2 transform -translate-y-1/2 text-[#00ff88] hover:text-white transition-colors">
+                        <i data-lucide="send" class="w-5 h-5"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Chat Privado -->
+            <div class="glass-panel p-5 flex-1 flex flex-col h-1/2 relative overflow-hidden group">
+                <!-- Efeito visual se não tiver ngm selecionado -->
+                <div id="private-overlay" class="absolute inset-0 bg-black/80 z-10 flex flex-col items-center justify-center backdrop-blur-sm transition-opacity">
+                    <i data-lucide="lock" class="text-gray-500 mb-2"></i>
+                    <p class="text-xs font-bold text-gray-400 text-center px-4">Selecione um jogador na lista online para enviar DM.</p>
+                </div>
+
+                <div class="flex items-center justify-between mb-4 border-b border-white/10 pb-3">
+                    <div class="flex items-center gap-2">
+                        <i data-lucide="message-circle" class="text-blue-400"></i>
+                        <h3 class="text-sm font-bold uppercase tracking-widest">Direct</h3>
+                    </div>
+                    <span id="private-target-name" class="text-xs font-bold bg-blue-500/20 text-blue-400 px-2 py-1 rounded">Ninguém</span>
+                </div>
+                <div id="private-chat" class="flex-1 overflow-y-auto flex flex-col gap-2 pr-2 mb-4">
+                </div>
+                <div class="relative">
+                    <input type="text" id="private-msg-input" placeholder="Mensagem direta..." class="w-full pl-4 pr-12 py-3 rounded-lg bg-black/50 text-sm text-white border border-gray-700 focus:border-blue-400 outline-none" disabled>
+                    <button onclick="sendPrivateMsg()" id="btn-private" class="absolute right-2 top-1/2 transform -translate-y-1/2 text-blue-400 hover:text-white transition-colors" disabled>
+                        <i data-lucide="send" class="w-5 h-5"></i>
+                    </button>
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+
+    <!-- Modal de Convite -->
+    <div id="invite-modal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden items-center justify-center">
+        <div class="glass-panel p-8 text-center max-w-sm w-full border border-[#00ff88]/50 shadow-[0_0_50px_rgba(0,255,136,0.2)]">
+            <i data-lucide="swords" class="w-16 h-16 text-[#00ff88] mx-auto mb-4 animate-bounce"></i>
+            <h2 class="text-2xl font-bold text-white mb-2">DESAFIO RECEBIDO!</h2>
+            <p class="text-gray-300 mb-6">Treinador <span id="challenger-name-display" class="font-bold text-[#00ff88]">X</span> quer uma partida.</p>
+            <div class="flex gap-4">
+                <button id="btn-decline" class="flex-1 py-3 rounded-lg border border-red-500 text-red-500 font-bold hover:bg-red-500 hover:text-white transition">Recusar</button>
+                <button id="btn-accept" class="flex-1 py-3 rounded-lg bg-[#00ff88] text-black font-bold hover:bg-emerald-400 transition shadow-[0_0_15px_rgba(0,255,136,0.5)]">Aceitar</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+    <script>lucide.createIcons();</script>
+</body>
+</html>
